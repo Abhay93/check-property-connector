@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="Check Property" prefix="cp"
+	doc:description="This module relies in runtime provided components"
+
+	xmlns="http://www.mulesoft.org/schema/mule/module"
+	xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:tns="http://www.mulesoft.org/schema/mule/cp"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+           http://www.mulesoft.org/schema/mule/cp http://www.mulesoft.org/schema/mule/cp/current/mule-cp.xsd
+           http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+
+	<operation name="check-property"
+		doc:description="Finds out missing properties">
+		<parameters>
+			<parameter name="directory" displayName="Directory to Scan"
+				type="string" use="REQUIRED" />
+			<parameter name="propertyFile" displayName="Property File"
+				type="string" use="REQUIRED" />
+		</parameters>
+		<body>
+			<file:list doc:name="List"
+				doc:id="0d24a658-c8af-416c-b093-9aa7cf33073e"
+				directoryPath="#[vars.directory]" recursive="true">
+				<file:matcher filenamePattern="*.xml" />
+			</file:list>
+			<file:read doc:name="Read Property File"
+				doc:id="2547871a-49af-4448-8643-01c3ade481e1"
+				path="#[vars.propertyFile]" target="definedProperties" />
+			<mule:set-variable value="#[[]]"
+				doc:name="Set Variable"
+				doc:id="f7787a55-7da5-484a-ac55-2a83efea6762"
+				variableName="missingProperties" />
+			<mule:foreach doc:name="For Each"
+				doc:id="59b14e89-a270-49bc-8be9-38ed612bd6db">
+				<mule:set-payload
+					value='#[%dw 2.0
+&#10;output application/json writeAttributes=true
+&#10;import * from dw::core::Objects
+&#10;import * from dw::core::Strings
+&#10;fun getProperties() = flatten(payload[0]..@ default [] map (item, index) -&gt; valueSet(item)) filter (($ contains "\$") or ($ contains "p("))
+&#10;fun getPropertiesIndex() = (getProperties()) map ($ find "\$")
+&#10;fun getPropertiesIndex2() = (getProperties()) map ($ find "p(")
+&#10;var allPropertiesIndex = (getPropertiesIndex() ++ getPropertiesIndex2()) filter (sizeOf($) != 0)
+&#10;var requiredProps= flatten(allPropertiesIndex map if(sizeOf($) == 1 and (getProperties()[$$] contains "\$")) substringBefore(substringAfter(getProperties()[$$], "\$"), "}") replace "{" with "" 
+&#10;else if(sizeOf($) == 1 and (getProperties()[$$] contains "p(")) substringBefore(substringAfter(getProperties()[$$], "p("), ")") replace "(" with "" replace "\"" with "" 	
+&#10;else if(sizeOf($) != 1 and (getProperties()[$$] contains "\$")) getProperties()[$$] splitBy "{" map substringBefore($, "}") filter ($ != "")
+&#10;else if(sizeOf($) != 1 and (getProperties()[$$] contains "p(")) getProperties()[$$] replace "\"" with "" splitBy "p(" map substringBefore($, ")")   filter ($ != "") 
+&#10;else "")
+&#10;//(?&lt;=\{).+?(?=\})/
+&#10;var definedProps = (vars.definedProperties splitBy "\r\n") map ($ replace /=(.*)/ with "")
+&#10;---
+&#10;{
+&#10;	missingProperties: ((requiredProps -- definedProps) distinctBy $)
+&#10;	
+&#10;}]'
+					doc:name="Set Payload"
+					doc:id="bc6b6d60-b0f1-4a99-869f-b257f6adc505" />
+
+				<mule:set-variable
+					value="#[output application/json --- vars.missingProperties ++ payload.missingProperties]"
+					doc:name="Set Variable"
+					doc:id="252b248a-5716-4459-997d-cb6d55dde2d4"
+					variableName="missingProperties" />
+			</mule:foreach>
+			<mule:set-payload
+				value='#[vars.missingProperties distinctBy $ filter $ != ""]'
+				doc:name="Set Payload" doc:id="bc6b6d60-b0f1-4a99-869f-b257f6adc505" />
+		</body>
+		<output type="string"
+			doc:description="Missing Proeprty Array" />
+	</operation>
+
+</module>
